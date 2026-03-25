@@ -1,86 +1,319 @@
 ---
-title: "R Notebook"
+title: "Sturgeon Vertebrae Mechanics"
 output: html_notebook
 ---
+# Introduction
+This notebook runs calculations and generates plot for the paper titled: Early tetrapod neck mobility modeled from an extant analogue (currently Nature manuscript 2025-12-33097).
 
-```{r}
-library(ggplot2)
-library(ggthemes)
+Data from this notebook are represented in Supplementary Figures 3, 4, 5, Table 1, and Supplementary Tables 7, 8, and 9
+
+Please email both dana.korneisel@ebc.uu.se and cdonatel@uw.edu with any questions or requests
+
+# Libraries
+The following libraries are required to run the code.
+```{r, echo=FALSE,  message=FALSE}
+# For reading in Data
 library(readr)
-library(dplyr)
+library(readxl)
+
+# For making plots
+library(ggplot2)         
+library(ggthemes)        
 library(RColorBrewer)
 library(cowplot)
 library(scales)
-library(readxl)
+
+# For filtering and sorting
+library(dplyr)
+
+# For tan_d function in mobility calculations
+# Note that this is not presented in the paper, this was just for the authors interest
 library(aspace)
 ```
 
+# Reading in data
+The following code reads in the material testing data used in the plots. 
 ```{r}
-#SturgeonTorsionOrig <- read_csv("G:/My Drive/Research/00. Research Projects/04. Project Folders/Cassandra/LargeSturgeonData/Torsion/SturgeonTorsionClean_MeasZeroCorr.csv")
+# This line reads in data from torsion trials
+SturgeonTorsionOrig <- read_csv("SturgeonTorsion_2026.csv")
 
-SturgeonTorsionOrig <- read_csv("G:/My Drive/Research/00. FishLab/04. Project Folders/Cassandra/LargeSturgeonData/Torsion/SturgeonTorsionClean_MeasZeroCorr.csv")
-
-#SturgeonTorsionOrig <- read_csv("SturgeonTorsionClean_MeasZeroCorr.csv")
-
-SturgeonTorsionOrig$Position <- as.factor(SturgeonTorsionOrig$Position)
+# This line reads in data from bending trials.
+SturgeonBendingOrig <- read_csv("SturgeonBending_2026.csv")
 ```
 
+# Processing Torsion Data - Polar Moment of Inertia
+
+1) Map the position column to a factor. Since the positions are listed as numbers, R, by default, treats them as continuous numbers. Converting them to a factor lets us treat them as discrete values
+
+2) Create two sub-data frames with the two different dissection conditions (whole vertebral column, "column") (notochord only, "notochord"). This filtering is required for torsion calculations, as the different cross-sections shapes and areas affect the polar moment of inertia (J, m^4). 
+
+3) Calculate polar moment of inertia (J)
+  3a) For the notochord dissection, estimate a circle (J = π*D^4/32) where D is the diameter of the notochord
+  3b) For the vertebral column dissection, estimate a triangle (J = (b*h/144) x (4b^2 3h^2)) where h is the height of the estimated vertebral triangle (m) and b is the base of the estimated vertebral triangle
+  - Note that all measurements are taken in mm, so we divide by 1000 to convert to meters
+
+4) Merge data back into a single data frame: SturgeonTorsion
 ```{r}
+# 1) Map position column to a factor
+SturgeonTorsionOrig$Position <- as.factor(SturgeonTorsionOrig$Position)
+
+# 2) Filter data by dissection condition.
 STVert <- filter(SturgeonTorsionOrig, dissection == "column")
 STNoto <- filter(SturgeonTorsionOrig, dissection == "notochord")
 
+# 3a) Polar moment of inertia for notochord dissection
 STNoto$J = (pi*(STNoto$diameter/1000)^4)/32
+
+# 3b) Polar moment of inertia for vertebral column dissection
 STVert$J = (((STVert$base/1000)*(STVert$height/1000))/144) * 
   (4*(STVert$base/1000)^2 + 3*(STVert$height/1000)^2)
 
+# 4) Merge Data into single data frame
 SturgeonTorsion <- rbind(STNoto, STVert)
 ```
 
+# Processing Torsion Data - Torsional Mechanics
+- Note that all linear measurements are taken in mm, so we divide by 1000 to convert to meters
+
+1) Calculate torsional rigidity (T*L/θ) where T is maximum torque (Nm), L is gage length (m), and θ is the angle at maximum torque (degrees). 
+2) Calculate torsional stiffness (T/θ) where T is maximum torque (Nm) and θ is the angle at maximum torque (degrees).
+3) Calculate torsional modulus (TL/θJ) where T is maximum torque (Nm), L is gage length (m), and θ is the angle at maximum torque (degrees), and J is the polar moment of inertia (m^4). Here, we simply divide by J, as we alcerady calculated GJ in step 1.
 ```{r}
-## Torsional Rigidity
+# 1) Torsional Rigidity
 SturgeonTorsion$GJ <- (SturgeonTorsion$cycle1MaxLoad*(SturgeonTorsion$Gage/1000))/((SturgeonTorsion$cycle1MaxAngle*pi)/180)
 
-## Torsional Stiffness
+# 2) Torsional Stiffness
 SturgeonTorsion$GJL <- SturgeonTorsion$cycle1MaxLoad/((SturgeonTorsion$cycle1MaxAngle*pi)/180)
 
-## Torsion Modulus
+# 3) Torsion Modulus
 SturgeonTorsion$G <- SturgeonTorsion$GJ/SturgeonTorsion$J
 ```
 
-```{r}
-SturgeonBendingOrig <- read_csv("G:/My Drive/Research/00. FishLab/04. Project Folders/Cassandra/LargeSturgeonData/Bending/SturgeonBending_CombinedClean_Meas.csv")
+# Processing Bending Data - Second Moment of Inertia
 
-#SturgeonBendingOrig <- read_csv("SturgeonBending_CombinedClean_Meas.csv")
-```
+1) Map the position column to a factor. Since the positions are listed as numbers, R, by default, treats them as continuous numbers. Converting them to a factor lets us treat them as discrete values
 
+2) Create two sub-data frames with the two different dissection conditions (whole vertebral column, "column") (notochord only, "notochord"). This filtering is required for torsion calculations, as the different cross-sections shapes and areas affect the second moment of area (I, m^4). 
+
+3) Calculate second moment of area (I, m^4) for notochord dissection
+For the notochord dissection, estimate a circle (I = π*r^4/32) where r is the radius of the notochord. Note that diameter measurements were taken in mm, so we divide by 1000 to convert to meters
+
+4) Create two sub-data frames with the two different bending orientations (dorsal and lateral). This is because second moment of area is dependent on the axis of bending, and it is not symmetrical for a triangle.
+
+5) Calculate second moment of inertia (I, m^4) for vertebral column dissection
+  5a) For the lateral orientation (I = h*b^3/48) where h is the height of the estimated vertebral triangle (m) and b is the base of the estimated vertebral triangle
+  5b) For the dorsal orientation (I = h^3*b/48) where h is the height of the estimated vertebral triangle (m) and b is the base of the estimated vertebral triangle
+  - Note that base and height measurements were taken in cm, so we divide by 100 to convert to meters
+
+6) Merge data back into a single data frame: SturgeonBending
 ```{r}
+# 1) Map position column to a factor
+SturgeonBendingOrig$Position <- as.factor(SturgeonBendingOrig$Position)
+
+# 2) Filter data by dissection condition.
 SBVert <- filter(SturgeonBendingOrig, dissection == "column")
 SBNoto <- filter(SturgeonBendingOrig, dissection == "notochord")
 
+# 3) Second moment of area for notochord dissection
 SBNoto$I = (pi*(SBNoto$diameter/1000/2)^4)/4
 
+# 4) Filter by bending orientation
 SBVertLat = filter(SBVert, orientation == "Lateral")
 SBVertDVT = filter(SBVert, orientation == "Dorso")
 
-## Currently assuming height and base are in cm not mm
+# 5a) Calculate I for Lateral Bending
 SBVertLat$I <- (SBVertLat$height/100 * (SBVertLat$base/100)^3)/48 
+
+# 5b) Calculate I for Dorsal Bending
 SBVertDVT$I <- ((SBVertDVT$height/100)^3 * SBVertDVT$base/100)/48 
 
+# 6) Merge back into a single data frame
 SBVert2 <- rbind(SBVertLat, SBVertDVT)
-
 SturgeonBending <- rbind(SBNoto, SBVert2)
 ```
 
+# Processing Torsion Data - Bending Mechanics
+
+1) Calculate flexural rigidity (rF/d) where rF represents the bending moment (M). F is the maximum force (N), r is the 3-point bending rig span (m), and d is the maximum displacement (m). Note that displacement and span was taken in mm, so we divide by 1000 to convert to meters. 
+2) Calculate bending stiffness (F/d) where F is the maximum force (N) and d is the maximum displacement (m). Note that displacement was taken in mm, so we divide by 1000 to convert to meters
+3) Calculate Youngs modulus (F*L^3/48dI) where F is the maximum force (N), L is the 3-point bending rig span (m), and d is the maximum displacement (m). Here, we simply divide by I, as we already calculated EI in step 1. 
 ```{r}
-## Flexural Rigidity
+# 1) Flexural Rigidity (F*L^3/48d)
 SturgeonBending$EI <- (SturgeonBending$cycle1MaxLoad*(SturgeonBending$length/1000))/(SturgeonBending$MaxBend/1000)
 
-## Yonung's Modulus
-SturgeonBending$E <- SturgeonBending$EI/SturgeonBending$I
+# 2) Bending Stiffness (F/d)
+SturgeonBending$EL <- SturgeonBending$cycle1MaxLoad/(SturgeonBending$MaxBend/1000)
 
+# 3) Yonung's Modulus (E)
+SturgeonBending$E <- SturgeonBending$EI/SturgeonBending$I
 ```
 
-Plot just to see things
+# Supplemental Figures
+First, seperate data by bending orientation for plotting
+```{r}
+SBDVT = filter(SturgeonBending, orientation == "Dorso")
+SBLat = filter(SturgeonBending, orientation == "Lateral")
+```
+
+The code below creates a plot showing Youngs modulus (E) and Flexural Rigidity (EI) for dorsal bending separated by position and dissection condition. Un-comment out the ggsave() line to save the plot in your working directory.
+```{r}
+# Make the two plots, but remove legend from the second one
+p1 <- ggplot(SBDVT, aes(x = dissection, y = E/1e9, fill = Position)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Blues") +
+  xlab(NULL) +
+  ylab("Flexural Modulus (E, GPa)") +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "top",
+    legend.spacing.x = unit(0.2, "cm"),  # reduce horizontal spacing
+    legend.spacing.y = unit(0.1, "cm"),  # reduce vertical spacing
+    legend.key.size = unit(0.5, "cm"),   # shrink legend keys (boxes)
+  )
+
+p2 <- ggplot(SBDVT, aes(x = dissection, y = EI, fill = Position)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Blues") +
+  xlab("Dissection Condition") +
+  ylab(expression("Flexural Rigidity (EI, N·m"^2*")"))+
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "none"   # remove legend
+  )
+
+# Align them vertically with cowplot
+DV <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9))
+DV
+#ggsave("dorsoVentralBending.png",plot = DV, width = 4, height = 6, units = "in")
+```
+
+The code below creates a plot showing Youngs modulus (E) and Flexural Rigidity (EI) for lateral bending separated by position and dissection condition. Un-comment out the ggsave() line to save the plot in your working directory.
+```{r}
+# Make the two plots, but remove legend from the second one
+p1 <- ggplot(SBLat, aes(x = dissection, y = E/1e9, fill = Position)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Blues") +
+  xlab(NULL) +
+  ylab("Flexural Modulus (E, GPa)") +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.spacing.x = unit(0.01, "cm"),  # reduce horizontal spacing
+    legend.spacing.y = unit(0.1, "cm"),  # reduce vertical spacing
+    legend.key.size = unit(0.4, "cm"),   # shrink legend keys (boxes)
+    legend.key.width = unit(0.3, "cm"), # shrink box width
+    legend.position = "top"
+  )+
+  guides(fill = guide_legend(nrow = 1)) 
+
+p2 <- ggplot(SBLat, aes(x = dissection, y = EI, fill = Position)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Blues") +
+  xlab("Dissection Condition") +
+  ylab(expression("Flexural Rigidity (EI, N·m"^2*")"))+
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "none"   # remove legend
+  )
+
+# Align them vertically with cowplot
+Lat <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9))
+Lat
+#ggsave("lateralBending.png",plot = Lat, width = 4, height = 6, units = "in")
+```
+
+The code below creates a plot showing Torsional modulus (G), Torsional Rigidity (GI), and Torsional Stiffness for lateral bending separated by position and dissection condition. Un-comment out the ggsave() line to save the plot in your working directory.
+```{r}
+# Make the two plots, but remove legend from the second one
+p2 <- ggplot(SturgeonTorsion, aes(x = dissection, y = GJ, fill = Position)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Blues") +
+  xlab(NULL) +
+  ylab(expression("Torsional Rigidity (GJ, N·m"^2*")"))+
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "none"   # remove legend
+  )
+
+p1 <- ggplot(SturgeonTorsion, aes(x = dissection, y = G/1e9, fill = Position)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Blues") +
+  xlab(NULL) +
+  ylab("Torsional Modulus (G, GPa)") +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "top"
+  )
+
+p3 <- ggplot(SturgeonTorsion, aes(x = dissection, y = GJL, fill = Position)) +
+  geom_boxplot() +
+  scale_fill_brewer(palette = "Blues") +
+  xlab("Dissection Condition") +
+  ylab("Torsional Stiffness (GJ/L, Nm)") +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "none"   # remove legend
+  )
+
+# Align them vertically with cowplot
+Tor <- plot_grid(p1, p2, p3, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9,0.9))
+Tor
+#ggsave("torsion.png",plot = Tor, width = 4, height = 8, units = "in")
+```
+
+# Summary Statistics Function
+This function creates summary statistics for different groups of data. Please add the function to your workspace by running this chunk before running the "Summary Statistics" section below.
+```{r}
+summarize_by_groups <- function(df, cont_var, group1, group2) {
+  df %>%
+    group_by(across(all_of(c(group1, group2)))) %>%
+    summarise(
+      mean = mean(.data[[cont_var]], na.rm = TRUE),
+      median = median(.data[[cont_var]], na.rm = TRUE),
+      sd = sd(.data[[cont_var]], na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    )
+}
+```
+
+# Summary Statistics
+This section uses the function above to calculate means, medians, and standard deviations by dissection condition and position for the mechanical properties calculated.
+```{r}
+bendLateral = filter(SturgeonBending, orientation == "Lateral")
+bendDorso = filter(SturgeonBending, orientation == "Dorso")
+
+summarize_by_groups(bendLateral, "E", "dissection", "Position")
+summarize_by_groups(bendLateral, "EI", "dissection", "Position")
+summarize_by_groups(bendLateral, "cycle1MaxLoad", "dissection", "Position")
+summarize_by_groups(bendLateral, "cycle1Work", "dissection", "Position")
+
+summarize_by_groups(bendDorso, "E", "dissection", "Position")
+summarize_by_groups(bendDorso, "EI", "dissection", "Position")
+summarize_by_groups(bendDorso, "cycle1MaxLoad", "dissection", "Position")
+summarize_by_groups(bendDorso, "cycle1Work", "dissection", "Position")
+
+summarize_by_groups(SturgeonTorsion, "G", "dissection", "Position")
+summarize_by_groups(SturgeonTorsion, "GJ", "dissection", "Position")
+summarize_by_groups(SturgeonTorsion, "GJL", "dissection", "Position")
+summarize_by_groups(SturgeonTorsion, "cycle1MaxLoad", "dissection", "Position")
+```
+
+# Exploratory Plots of Mechanical Testing Data
+The plots below are not included in the paper. They serve only to explore the data plotted in different ways.
 ```{r}
 ggplot(SturgeonTorsion, aes(x = dissection, y = GJ, fill = Position))+
   geom_boxplot()+
@@ -122,15 +355,13 @@ SBLat$Position <- factor(
   SBLat$Position,
   levels = c("Position 1", "Position 2", "Position 3", "Position 4", 
              "Position 5", "Position 6", "Position 7", "Position 8"),
-  labels = c("1", "2", "3", "4", "5", "6", "7", "8")
-)
+  labels = c("1", "2", "3", "4", "5", "6", "7", "8"))
 
 SBDVT = filter(SturgeonBending, orientation == "Dorso")
 SBDVT$Position <- factor(
   SBDVT$Position,
   levels = c("Position 1", "Position 2", "Position 3", "Position 4"),
-  labels = c("1", "2", "3", "4")
-)
+  labels = c("1", "2", "3", "4"))
 
 ggplot(SBLat, aes(x = dissection, y = EI, fill = Position))+
   geom_boxplot()+
@@ -141,118 +372,10 @@ ggplot(SBLat, aes(x = dissection, y = EI, fill = Position))+
   theme(text = element_text(size = 20))
 ```
 
-Nice Plots for Paper
+## Exploraty Mobility Plots
+The data manipulation and plots below are not included in the paper. They serve only to explore the mobility estimates performed in excel graphically. 
 ```{r}
-# Make the two plots, but remove legend from the second one
-p1 <- ggplot(SBDVT, aes(x = dissection, y = E/1e9, fill = Position)) +
-  geom_boxplot() +
-  scale_fill_brewer(palette = "Blues") +
-  xlab(NULL) +
-  ylab("Flexural Modulus (E, GPa)") +
-  theme_classic() +
-  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "top",
-    legend.spacing.x = unit(0.2, "cm"),  # reduce horizontal spacing
-    legend.spacing.y = unit(0.1, "cm"),  # reduce vertical spacing
-    legend.key.size = unit(0.5, "cm"),   # shrink legend keys (boxes)
-  )
-
-p2 <- ggplot(SBDVT, aes(x = dissection, y = EI, fill = Position)) +
-  geom_boxplot() +
-  scale_fill_brewer(palette = "Blues") +
-  xlab("Dissection Condition") +
-  ylab(expression("Flexural Rigidity (EI, N·m"^2*")"))+
-  theme_classic() +
-  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
-
-# Align them vertically with cowplot
-DV <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9))
-ggsave("dorsoVentralBending.png",plot = DV, width = 4, height = 6, units = "in")
-
-# Make the two plots, but remove legend from the second one
-p1 <- ggplot(SBLat, aes(x = dissection, y = E/1e9, fill = Position)) +
-  geom_boxplot() +
-  scale_fill_brewer(palette = "Blues") +
-  xlab(NULL) +
-  ylab("Flexural Modulus (E, GPa)") +
-  theme_classic() +
-  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.spacing.x = unit(0.01, "cm"),  # reduce horizontal spacing
-    legend.spacing.y = unit(0.1, "cm"),  # reduce vertical spacing
-    legend.key.size = unit(0.4, "cm"),   # shrink legend keys (boxes)
-    legend.key.width = unit(0.3, "cm"), # shrink box width
-    legend.position = "top"
-  )+
-  guides(fill = guide_legend(nrow = 1)) 
-
-p2 <- ggplot(SBLat, aes(x = dissection, y = EI, fill = Position)) +
-  geom_boxplot() +
-  scale_fill_brewer(palette = "Blues") +
-  xlab("Dissection Condition") +
-  ylab(expression("Flexural Rigidity (EI, N·m"^2*")"))+
-  theme_classic() +
-  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
-
-# Align them vertically with cowplot
-Lat <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9))
-ggsave("lateralBending.png",plot = Lat, width = 4, height = 6, units = "in")
-
-# Make the two plots, but remove legend from the second one
-p2 <- ggplot(SturgeonTorsion, aes(x = dissection, y = GJ, fill = Position)) +
-  geom_boxplot() +
-  scale_fill_brewer(palette = "Blues") +
-  xlab(NULL) +
-  ylab(expression("Torsional Rigidity (GJ, N·m"^2*")"))+
-  theme_classic() +
-  scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
-
-p1 <- ggplot(SturgeonTorsion, aes(x = dissection, y = G/1e9, fill = Position)) +
-  geom_boxplot() +
-  scale_fill_brewer(palette = "Blues") +
-  xlab(NULL) +
-  ylab("Torsional Modulus (G, GPa)") +
-  theme_classic() +
-  scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "top"
-  )
-
-p3 <- ggplot(SturgeonTorsion, aes(x = dissection, y = GJL, fill = Position)) +
-  geom_boxplot() +
-  scale_fill_brewer(palette = "Blues") +
-  xlab("Dissection Condition") +
-  ylab("Torsional Stiffness (GJ/L, Nm)") +
-  theme_classic() +
-  scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
-
-# Align them vertically with cowplot
-Tor <- plot_grid(p1, p2, p3, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9,0.9))
-ggsave("torsion.png",plot = Tor, width = 4, height = 8, units = "in")
-```
-
-```{r}
-mobility <- read_excel("G:/My Drive/Research/00. FishLab/04. Project Folders/Cassandra/LargeSturgeonData/Taxaformobilityestimates.xlsx",sheet = "forR")
+mobility <- read_excel("Taxaformobilityestimates.xlsx",sheet = "forR")
 
 mobility$latColF = ( (tan_d(mobility$LatBendDegrees)*mobility$Length.m)*
                    3*mobility$E.Pa.LatCol*mobility$IlatCol ) /
@@ -274,9 +397,7 @@ mobility$DVNotF = ( (tan_d(mobility$DVBendDegrees)*mobility$Length.m)*
                   (mobility$Length.m^3)
 
 mobility$TNotT = (as_radians(mobility$TorsionDegrees)*mobility$G.Pa.Not*mobility$Jnoto)/mobility$Length.m
-```
 
-```{r}
 hline_data <- mobility %>%
   distinct(Taxon, LatColForceReq)
 
@@ -288,99 +409,3 @@ ggplot(mobility, aes(x = LatBendDegrees, y = latColF, color = Taxon)) +
   theme_classic()+
   ylim(0, 30000)
 ```
-
-
-Summary Statistics Function
-```{r}
-summarize_by_groups <- function(df, cont_var, group1, group2) {
-  df %>%
-    group_by(across(all_of(c(group1, group2)))) %>%
-    summarise(
-      mean = mean(.data[[cont_var]], na.rm = TRUE),
-      median = median(.data[[cont_var]], na.rm = TRUE),
-      sd = sd(.data[[cont_var]], na.rm = TRUE),
-      n = n(),
-      .groups = "drop"
-    )
-}
-```
-
-Generate Summary Statistics
-```{r}
-bendLateral = filter(SturgeonBending, orientation == "Lateral")
-bendDorso = filter(SturgeonBending, orientation == "Dorso")
-
-summarize_by_groups(bendLateral, "E", "dissection", "Position")
-summarize_by_groups(bendLateral, "EI", "dissection", "Position")
-summarize_by_groups(bendLateral, "cycle1MaxLoad", "dissection", "Position")
-summarize_by_groups(bendLateral, "cycle1Work", "dissection", "Position")
-
-summarize_by_groups(bendDorso, "E", "dissection", "Position")
-summarize_by_groups(bendDorso, "EI", "dissection", "Position")
-summarize_by_groups(bendDorso, "cycle1MaxLoad", "dissection", "Position")
-summarize_by_groups(bendDorso, "cycle1Work", "dissection", "Position")
-
-summarize_by_groups(SturgeonTorsion, "G", "dissection", "Position")
-summarize_by_groups(SturgeonTorsion, "GJ", "dissection", "Position")
-summarize_by_groups(SturgeonTorsion, "GJL", "dissection", "Position")
-summarize_by_groups(SturgeonTorsion, "cycle1MaxLoad", "dissection", "Position")
-```
-
-%%% Old %%%
-```{r}
-# Specify data column
-bendLateral = filter(SturgeonBending, orientation == "Lateral")
-bendDorso = filter(SturgeonBending, orientation == "Dorso")
-group_mean_Lateral<- aggregate(x= bendLateral$E/10^9,
-                      # Specify group indicator
-                      by = list(bendLateral$dissection, bendLateral$orientation, bendLateral$Position),      
-                      # Specify function (i.e. mean)
-                      FUN = mean)
-#names(group_mean_bending)[3] <- "E"
-print(group_mean_Lateral)
-
-group_mean_Dorso<- aggregate(x= bendDorso$E/10^9,
-                      # Specify group indicator
-                      by = list(bendDorso$dissection, bendDorso$orientation, bendDorso$Position),      
-                      # Specify function (i.e. mean)
-                      FUN = mean)
-#names(group_mean_bending)[3] <- "E"
-print(group_mean_Dorso)
-
-group_mean_torsion<- aggregate(x= SturgeonTorsion$G/10^9,
-                      # Specify group indicator
-                      by = list(SturgeonTorsion$dissection, SturgeonTorsion$Position),      
-                      # Specify function (i.e. mean)
-                      FUN = mean)
-#names(group_mean_bending)[3] <- "E"
-print(group_mean_torsion)
-```
-
-```{r}
-bendLateral = filter(SturgeonBending, orientation == "Lateral")
-bendDorso = filter(SturgeonBending, orientation == "Dorso")
-group_mean_Lateral<- aggregate(x= bendLateral$I,
-                      # Specify group indicator
-                      by = list(bendLateral$dissection, bendLateral$orientation, bendLateral$Position),      
-                      # Specify function (i.e. mean)
-                      FUN = mean)
-#names(group_mean_bending)[3] <- "E"
-print(group_mean_Lateral)
-
-group_mean_Dorso<- aggregate(x= bendDorso$I,
-                      # Specify group indicator
-                      by = list(bendDorso$dissection, bendDorso$orientation, bendDorso$Position),      
-                      # Specify function (i.e. mean)
-                      FUN = mean)
-#names(group_mean_bending)[3] <- "E"
-print(group_mean_Dorso)
-
-group_mean_torsion<- aggregate(x= SturgeonTorsion$J,
-                      # Specify group indicator
-                      by = list(SturgeonTorsion$dissection, SturgeonTorsion$Position),      
-                      # Specify function (i.e. mean)
-                      FUN = mean)
-#names(group_mean_bending)[3] <- "E"
-print(group_mean_torsion)
-```
-
