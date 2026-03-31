@@ -285,6 +285,8 @@ summarize_by_groups <- function(df, cont_var, group1, group2) {
       median = median(.data[[cont_var]], na.rm = TRUE),
       sd = sd(.data[[cont_var]], na.rm = TRUE),
       n = n(),
+      min = min(.data[[cont_var]], na.rm = TRUE),
+      max = max(.data[[cont_var]], na.rm = TRUE),
       .groups = "drop"
     )
 }
