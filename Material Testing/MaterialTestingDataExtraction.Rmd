@@ -1,0 +1,148 @@
+---
+title: "Sturgeon Material Testing Data Extractor"
+output: html_notebook
+---
+##NOTE##
+To run the code below you must add a function to your workspace. For the 
+sturgeon project, that's either a function to extract torsional data or to 
+extract three point bending data. Both types of functions are available in the
+https://github.com/CDonatelli/Korneisel_TetNecks_2026 repository and are 
+derived from function in the https://github.com/CDonatelli/CrshR repository
+for general material testing data extraction of biological and biologically 
+inspired samples. 
+
+Please contact Cassandra Donatelli (cdonatel@uw.edu) with any questions or 
+requests for expansions of the scripts
+
+#Required Libraries
+```{r}
+library(readr)
+library(ggplot2)
+library(pracma)
+library(tcltk)
+library(TTR)
+```
+
+### 3PT BENDING DATA PROCESSING ###
+
+#Enter in your test data
+This includes the number of cycles, maximum deflection (mm) of the upper roller 
+(programmed by the user), and span between the two support rollers (mm)
+```{r}
+# This is the same for all bending trials
+BendCycles = 5
+
+# Maximum deflection (mm)
+maxExtLat = 10
+maxExtDor = 5
+
+##################
+# NOTE: This changes for different trials
+
+# See the data table for more information
+Length = 20 # Gage length (mm)
+
+#################
+```
+
+### Add the bend_3pt_cyclic_TimeForce Function into your workspace ###
+
+# Read in data and call the function
+This is for Lateral Bends
+```{r}
+# Select and read in the data
+dataFile = file.choose()
+data <- read.csv(dataFile, skip = 3, header = F)
+colnames(data)<- c("Time","Load")
+  
+### This code finds the timing of each cycle
+dataPts = nrow(data)
+cycleLength = dataPts/bendCycles
+userPts = floor(ppoints(bendCycles+1,1)*dataPts)
+userPts[1]=1
+userPts = data$Time[userPts]
+
+# This plots it to make sure you are good to go
+# The red lines should be seperating the start and stop of each cycle
+ggplot(data, aes(x = Time, y = Load)) +
+  geom_line() +
+  geom_vline(xintercept = userPts, color = "red", linetype = "dashed") +
+  labs(title = "Load over Time with Cycle Points Marked",
+       x = "Time", y = "Load") +
+  theme_minimal()
+```
+
+# Run the function
+```{r}
+dataOut <- bend_3pt_cyclic_TimeDisp(data, Length, bendCycles, userPts, maxExtLat)
+
+# Display Results so that it's easy to copy into table
+results <- dataOut$results
+knitr::kable(result)
+
+# Display the plot
+dataOut$plot
+```
+
+### TORSION DATA ###
+
+#Enter in your test data
+This includes the number of cycles, maximum deflection (mm) of the upper roller 
+(programmed by the user), and span between the two support rollers (mm)
+```{r}
+# This is the same for all bending trials
+torsionCycles = 3
+
+# Maximum Angle (degrees)
+maxAngle = 30
+
+##################
+# NOTE: This changes for different trials
+
+# See the data table for more information
+Length = 50 # Gage length (mm)
+
+#################
+```
+
+### Add the torsion_cyclic_TimeForce Function into your workspace ###
+
+# Read in data and call the function
+This is for Lateral Bends
+```{r}
+# Select and read in the data
+dataFile = file.choose()
+data <- read.csv(dataFile, skip = 3, header = F)
+colnames(data)<- c("Time","Load", "Angle")
+
+# Remove the extra hold time at the end so we can easily crop cycles
+data <- data[data$Time <= (max(data$Time) - 1.5), ]
+  
+### This code finds the timing of each cycle
+dataPts = nrow(data)
+cycleLength = dataPts/torsionCycles
+userPts = floor(ppoints(torsionCycles+1,1)*dataPts)
+userPts[1]=1
+userPts = data$Time[userPts]
+
+# This plots it to make sure you are good to go
+# The red lines should be seperating the start and stop of each cycle
+ggplot(data, aes(x = Time, y = Load)) +
+  geom_line() +
+  geom_vline(xintercept = userPts, color = "red", linetype = "dashed") +
+  labs(title = "Load over Time with Cycle Points Marked",
+       x = "Time", y = "Load") +
+  theme_minimal()
+```
+
+# Run the function
+```{r}
+dataOut <- torsion_cyclic_TimeForce(data, Length, torsionCycles, userPts)
+
+# Display Results so that it's easy to copy into table
+results <- dataOut$results
+knitr::kable(results)
+
+# Display the plot
+dataOut$plot
+```
