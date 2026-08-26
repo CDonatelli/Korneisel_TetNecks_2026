@@ -22,6 +22,7 @@ library(ggthemes)
 library(RColorBrewer)
 library(cowplot)
 library(scales)
+library(ggnewscale)
 
 # For filtering and sorting
 library(dplyr)
@@ -34,12 +35,13 @@ library(aspace)
 
 # Reading in data
 The following code reads in the material testing data used in the plots. 
-```{r}
+```{r, echo=FALSE,  message=FALSE}
 # This line reads in data from torsion trials
 SturgeonTorsionOrig <- read_csv("SturgeonTorsion_2026.csv")
 
 # This line reads in data from bending trials.
 SturgeonBendingOrig <- read_csv("SturgeonBending_2026.csv")
+
 ```
 
 # Processing Torsion Data - Polar Moment of Inertia
@@ -133,15 +135,17 @@ SBVert2 <- rbind(SBVertLat, SBVertDVT)
 SturgeonBending <- rbind(SBNoto, SBVert2)
 ```
 
-# Processing Torsion Data - Bending Mechanics
-1) Calculate flexural rigidity (rF/d) where rF represents the bending moment (M). F is the maximum force (N), r is the 3-point bending rig span (m), and d is the maximum displacement (m). Note that displacement and span was taken in mm, so we divide by 1000 to convert to meters. 
+# Processing Bending Data - Bending Mechanics
+1) Calculate flexural rigidity (rF/d) where rF represents the bending moment (M). F is the maximum force (N), r is the 3-point bending rig span (m), and d is the maximum displacement (m). Note that displacement and span was taken in mm so we divide by 100 to convert to meters, and the displacement was taken in mm so we divide by 1000 to convert to meters. 
 
 2) Calculate bending stiffness (F/d) where F is the maximum force (N) and d is the maximum displacement (m). Note that displacement was taken in mm, so we divide by 1000 to convert to meters
 
 3) Calculate Youngs modulus (F*L^3/48dI) where F is the maximum force (N), L is the 3-point bending rig span (m), and d is the maximum displacement (m). Here, we simply divide by I, as we already calculated EI in step 1. 
 ```{r}
-# 1) Flexural Rigidity (F*L^3/48d)
-SturgeonBending$EI <- (SturgeonBending$cycle1MaxLoad*(SturgeonBending$length/1000))/(SturgeonBending$MaxBend/1000)
+# 1) Flexural Rigidity (rF/d)
+SturgeonBending$EI <- (SturgeonBending$cycle1MaxLoad*(SturgeonBending$length/100))/(SturgeonBending$MaxBend/1000)
+
+SturgeonBending$EIold <- (SturgeonBending$cycle1MaxLoad*(SturgeonBending$length/1000))/(SturgeonBending$MaxBend/1000)
 
 # 2) Bending Stiffness (F/d)
 SturgeonBending$EL <- SturgeonBending$cycle1MaxLoad/(SturgeonBending$MaxBend/1000)
@@ -151,18 +155,21 @@ SturgeonBending$E <- SturgeonBending$EI/SturgeonBending$I
 ```
 
 # Supplemental Figures
-First, seperate data by bending orientation for plotting
+First, separate data by bending orientation for plotting
 ```{r}
 SBDVT = filter(SturgeonBending, orientation == "Dorso")
 SBLat = filter(SturgeonBending, orientation == "Lateral")
 ```
 
-The code below creates a plot showing Youngs modulus (E) and Flexural Rigidity (EI) for dorsal bending separated by position and dissection condition. Un-comment out the ggsave() line to save the plot in your working directory.
+The code below creates a plot showing Youngs modulus (E) and Flexural Rigidity (EI) for dorsoventral bending separated by position and dissection condition. Un-comment out the ggsave() line to save the plot in your working directory.
 ```{r}
 # Make the two plots, but remove legend from the second one
 p1 <- ggplot(SBDVT, aes(x = dissection, y = E/1e9, fill = Position)) +
   geom_boxplot() +
+  geom_jitter(aes(color = Position), alpha = 0.4, size = 2, show.legend = FALSE,
+              position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75)) +
   scale_fill_brewer(palette = "Blues") +
+  scale_color_brewer(palette = "Blues") +
   xlab(NULL) +
   ylab("Flexural Modulus (E, GPa)") +
   theme_classic() +
@@ -172,11 +179,12 @@ p1 <- ggplot(SBDVT, aes(x = dissection, y = E/1e9, fill = Position)) +
     legend.position = "top",
     legend.spacing.x = unit(0.2, "cm"),  # reduce horizontal spacing
     legend.spacing.y = unit(0.1, "cm"),  # reduce vertical spacing
-    legend.key.size = unit(0.5, "cm"),   # shrink legend keys (boxes)
-  )
+    legend.key.size = unit(0.5, "cm"))   # shrink legend keys (boxes)
 
 p2 <- ggplot(SBDVT, aes(x = dissection, y = EI, fill = Position)) +
   geom_boxplot() +
+  geom_jitter(position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    alpha = 0.4, size = 2, show.legend = FALSE, color = "grey") +
   scale_fill_brewer(palette = "Blues") +
   xlab("Dissection Condition") +
   ylab(expression("Flexural Rigidity (EI, N·m"^2*")"))+
@@ -184,13 +192,73 @@ p2 <- ggplot(SBDVT, aes(x = dissection, y = EI, fill = Position)) +
   scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
   theme(
     text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
+    legend.position = "none")   # remove legend
 
 # Align them vertically with cowplot
 DV <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9))
 DV
 #ggsave("dorsoVentralBending.png",plot = DV, width = 4, height = 6, units = "in")
+```
+
+New Plots of Youngs modulus (E) and Flexural Rigidity (EI) for dorsoventral bending showing the 
+raw datapoints jittered so that you can see the
+```{r}
+SBDVT$box_alpha <- ifelse(SBDVT$Position == "Position 4", 0, 1)
+SBDVT$box_line  <- ifelse(SBDVT$Position == "Position 4", NA, "black")
+
+# This will create a variable to remove the box and mean from the plots if there
+# are fewer than three data points. In this case only for the notocord at Position 4
+SBDVT <- SBDVT %>%
+  group_by(dissection, Position) %>%
+  mutate(n_group   = n(),
+         box_alpha = ifelse(n_group < 3, 0, 1),   # <3 points = no real box
+         box_line  = ifelse(n_group < 3, NA, "black")
+         ) %>%
+  ungroup()
+
+p1 <- ggplot(SBDVT, aes(x = dissection, y = E/1e9)) +
+  geom_boxplot(aes(alpha = box_alpha, colour = box_line, group = interaction(dissection, Position)),
+    fill = "grey85", outlier.shape = 3, outlier.color = "darkred",outlier.size = 2.5,
+    position = position_dodge2(preserve = "single")) +
+  scale_alpha_identity() +
+  scale_colour_identity() +
+  geom_jitter(aes(fill = Position),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    shape = 21, colour = "black",stroke = 0.3, size = 2) +
+  scale_fill_brewer(palette = "Blues") +
+  xlab(NULL) +
+  ylab("Flexural Modulus (E, GPa)") +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "top",
+    legend.spacing.x = unit(0.1, "cm"),
+    legend.spacing.y = unit(0.1, "cm"),
+    legend.key.size = unit(0.25, "cm"))+
+  annotate("text", x = 1.28, y = max(SBDVT$E)/1e9+15, label = "n < 3", size = 3.5)
+
+p2 <- ggplot(SBDVT, aes(x = dissection, y = EI)) +
+  geom_boxplot(aes(alpha = box_alpha, colour = box_line, group = interaction(dissection, Position)),
+    fill = "grey85", outlier.shape = 3, outlier.color = "darkred",outlier.size = 2.5,
+    position = position_dodge2(preserve = "single")) +
+  scale_alpha_identity() +
+  scale_colour_identity() +
+  geom_jitter(aes(fill = Position),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    shape = 21, colour = "black", stroke = 0.3, size = 2) +
+  scale_fill_brewer(palette = "Blues") +
+  xlab("Dissection Condition") +
+  ylab(expression("Flexural Rigidity (EI, N·m"^2*")")) +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(text = element_text(size = 12), legend.position = "none") +
+  annotate("text", x = 1.28, y = max(SBDVT$EI)+1, label = "n < 3", size = 3.5)
+
+# Align them vertically with cowplot
+DV <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9))
+DV
+#ggsave("dorsoVentralBending02.png",plot = DV, width = 5, height = 6, units = "in")
 ```
 
 The code below creates a plot showing Youngs modulus (E) and Flexural Rigidity (EI) for lateral bending separated by position and dissection condition. Un-comment out the ggsave() line to save the plot in your working directory.
@@ -209,8 +277,7 @@ p1 <- ggplot(SBLat, aes(x = dissection, y = E/1e9, fill = Position)) +
     legend.spacing.y = unit(0.1, "cm"),  # reduce vertical spacing
     legend.key.size = unit(0.4, "cm"),   # shrink legend keys (boxes)
     legend.key.width = unit(0.3, "cm"), # shrink box width
-    legend.position = "top"
-  )+
+    legend.position = "top")+
   guides(fill = guide_legend(nrow = 1)) 
 
 p2 <- ggplot(SBLat, aes(x = dissection, y = EI, fill = Position)) +
@@ -222,8 +289,7 @@ p2 <- ggplot(SBLat, aes(x = dissection, y = EI, fill = Position)) +
   scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
   theme(
     text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
+    legend.position = "none")   # remove legend
 
 # Align them vertically with cowplot
 Lat <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9))
@@ -231,49 +297,137 @@ Lat
 #ggsave("lateralBending.png",plot = Lat, width = 4, height = 6, units = "in")
 ```
 
+New Plots of Youngs modulus (E) and Flexural Rigidity (EI) for lateral bending showing the 
+raw datapoints jittered so that you can see them
+```{r}
+SBLat$box_alpha <- ifelse(SBLat$Position == "Position 4", 0, 1)
+SBLat$box_line  <- ifelse(SBLat$Position == "Position 4", NA, "black")
+
+# This will create a variable to remove the box and mean from the plots if there
+# are fewer than three data points. In this case only for the notocord at Position 8
+SBLat <- SBLat %>%
+  group_by(dissection, Position) %>%
+  mutate(n_group   = n(),
+         box_alpha = ifelse(n_group < 3, 0, 1),   # <3 points = no real box
+         box_line  = ifelse(n_group < 3, NA, "black")
+         ) %>%
+  ungroup()
+
+ann1 <- data.frame(dissection = "column", x = 8, y = max(SBLat$E/1e9, na.rm = TRUE)+1, label = "n < 3")
+
+p1 <- ggplot(SBLat, aes(x = Position, y = E/1e9)) +
+  geom_boxplot(aes(alpha = box_alpha, colour = box_line),
+    fill = "grey85", position = position_dodge2(preserve = "single"),
+    outlier.shape = 3, outlier.color = "darkred",outlier.size = 2.5) +
+  scale_alpha_identity() +
+  scale_colour_identity() +
+  geom_jitter(aes(fill = Position),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    shape = 21, colour = "black", stroke = 0.3, size = 2) +
+  geom_text(data = ann1, aes(x = x, y = y, label = label), size = 3.5, inherit.aes = FALSE) +
+  scale_fill_brewer(palette = "Blues") +
+  facet_wrap(~ dissection, scales = "free_x", strip.position = "bottom") +
+  xlab(NULL) +
+  ylab("Flexural Modulus (E, GPa)") +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "top",
+    legend.spacing.x = unit(0.1, "cm"),
+    legend.spacing.y = unit(0.01, "cm"),
+    legend.key.size = unit(0.2, "cm"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    strip.placement = "outside") 
+
+ann2 <- data.frame(dissection = "column", x = 8, y = max(SBLat$EI, na.rm = TRUE)+1, label = "n < 3")
+
+p2 <- ggplot(SBLat, aes(x = Position, y = EI)) +
+  geom_boxplot(aes(alpha = box_alpha, colour = box_line),
+    fill = "grey85", position = position_dodge2(preserve = "single"),
+    outlier.shape = 3, outlier.color = "darkred",outlier.size = 2.5) +
+  scale_alpha_identity() +
+  scale_colour_identity() +
+  geom_jitter(aes(fill = Position),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    shape = 21, colour = "black", stroke = 0.3, size = 2) +
+  geom_text(data = ann2, aes(x = x, y = y, label = label), size = 3.5, inherit.aes = FALSE) +
+  scale_fill_brewer(palette = "Blues") +
+  facet_wrap(~ dissection, scales = "free_x", strip.position = "bottom") +
+  xlab("Dissection Condition") +
+  ylab(expression("Flexural Rigidity (EI, N·m"^2*")")) +
+  theme_classic() +
+  scale_y_continuous(labels = number_format(accuracy = 0.01)) + 
+  theme(
+    text = element_text(size = 12),
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    strip.background = element_blank(),
+    strip.placement = "outside")
+
+# Align them vertically with cowplot
+Lat <- plot_grid(p1, p2, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.85))
+Lat
+#ggsave("lateralBending02.png",plot = Lat, width = 5, height = 6, units = "in")
+```
+
 The code below creates a plot showing Torsional modulus (G), Torsional Rigidity (GI), and Torsional Stiffness for lateral bending separated by position and dissection condition. Un-comment out the ggsave() line to save the plot in your working directory.
+# Updated to include jittered points to match the aesthetic for the bending plots
 ```{r}
 # Make the two plots, but remove legend from the second one
-p2 <- ggplot(SturgeonTorsion, aes(x = dissection, y = GJ, fill = Position)) +
-  geom_boxplot() +
+p2 <- ggplot(SturgeonTorsion, aes(x = dissection, y = GJ)) +
+  geom_boxplot(aes(group = interaction(dissection, Position)),
+    fill = "grey85", outlier.shape = 3, outlier.color = "darkred",outlier.size = 2.5,
+    position = position_dodge2(preserve = "single")) +
+  geom_jitter(aes(fill = Position),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    shape = 21, colour = "black", stroke = 0.3, size = 2) +
   scale_fill_brewer(palette = "Blues") +
   xlab(NULL) +
   ylab(expression("Torsional Rigidity (GJ, N·m"^2*")"))+
   theme_classic() +
   scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
+  theme(text = element_text(size = 12),
+        legend.position = "none")   # remove legend
+  
 
 p1 <- ggplot(SturgeonTorsion, aes(x = dissection, y = G/1e9, fill = Position)) +
-  geom_boxplot() +
+  geom_boxplot(aes(group = interaction(dissection, Position)),
+    fill = "grey85", outlier.shape = 3, outlier.color = "darkred",outlier.size = 2.5,
+    position = position_dodge2(preserve = "single")) +
+  geom_jitter(aes(fill = Position),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    shape = 21, colour = "black", stroke = 0.3, size = 2) +
   scale_fill_brewer(palette = "Blues") +
   xlab(NULL) +
   ylab("Torsional Modulus (G, GPa)") +
   theme_classic() +
   scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "top"
-  )
+  theme(text = element_text(size = 12),
+        legend.position = "top")
 
 p3 <- ggplot(SturgeonTorsion, aes(x = dissection, y = GJL, fill = Position)) +
-  geom_boxplot() +
+  geom_boxplot(aes(group = interaction(dissection, Position)),
+    fill = "grey85", outlier.shape = 3, outlier.color = "darkred",outlier.size = 2.5,
+    position = position_dodge2(preserve = "single")) +
+  geom_jitter(aes(fill = Position),
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    shape = 21, colour = "black", stroke = 0.3, size = 2) +
   scale_fill_brewer(palette = "Blues") +
   xlab("Dissection Condition") +
   ylab("Torsional Stiffness (GJ/L, Nm)") +
   theme_classic() +
   scale_y_continuous(labels = number_format(accuracy = 0.0001)) + 
-  theme(
-    text = element_text(size = 12),
-    legend.position = "none"   # remove legend
-  )
+  theme(text = element_text(size = 12),
+        legend.position = "none")
 
 # Align them vertically with cowplot
 Tor <- plot_grid(p1, p2, p3, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,0.9,0.9))
 Tor
-#ggsave("torsion.png",plot = Tor, width = 4, height = 8, units = "in")
+#ggsave("torsion02.png",plot = Tor, width = 5, height = 8, units = "in")
 ```
 
 # Summary Statistics Function
